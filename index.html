@@ -10,7 +10,7 @@
     :root { color-scheme: light; --paper:#faf9f4; --ink:#203c30; --muted:#72786c; --line:#e1e5d9; --green:#29543e; --tint:#ecf0e4; }
     * { box-sizing:border-box; }
     body { margin:0; background:var(--paper); color:var(--ink); font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif; line-height:1.65; }
-    button,select { font:inherit; }
+    button,select,input { font:inherit; }
     button,select { cursor:pointer; }
     button:focus-visible,select:focus-visible { outline:3px solid #ba763d; outline-offset:4px; }
     .wrap { width:min(1160px,calc(100% - 64px)); margin:auto; }
@@ -86,6 +86,32 @@
     .empty p { margin:0; font-size:13px; }
     .retry { border:0; background:var(--green); color:white; padding:9px 22px; border-radius:25px; margin-top:18px; }
     footer { margin-top:65px; padding:24px 0 30px; border-top:1px solid var(--line); font-size:11px; color:#8b9181; display:flex; justify-content:space-between; gap:15px; }
+    .header-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:12px 20px; min-width:0; }
+    .account { display:flex; align-items:center; justify-content:flex-end; gap:10px; min-width:0; }
+    .account-email { max-width:220px; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .account-button { flex-shrink:0; border:1px solid var(--green); border-radius:24px; padding:8px 18px; background:var(--green); color:white; font-size:13px; }
+    .account-button.secondary { background:transparent; color:var(--green); }
+    .account-status { margin:0; text-align:right; font-size:12px; color:#a23e32; }
+    .account-status:empty { display:none; }
+    .auth-dialog { width:min(440px,calc(100% - 32px)); }
+    .auth-body { padding:24px 28px 28px; }
+    .auth-body h2 { margin-bottom:6px; }
+    .auth-intro { margin:0 0 22px; font-size:13px; color:var(--muted); }
+    .auth-form { display:grid; gap:9px; }
+    .auth-form label { font-size:13px; font-weight:700; }
+    .auth-form input { width:100%; min-width:0; padding:11px 12px; border:1px solid #bac7b5; border-radius:8px; background:white; color:var(--ink); }
+    .auth-form input:focus-visible { outline:3px solid #ba763d; outline-offset:2px; }
+    .auth-form label:not(:first-child) { margin-top:8px; }
+    .auth-hint { margin:0; font-size:12px; color:var(--muted); }
+    .auth-message { margin:7px 0 0; color:#a23e32; font-size:13px; overflow-wrap:anywhere; }
+    .auth-message:empty { display:none; }
+    .auth-message.success { color:var(--green); }
+    .auth-submit { margin-top:12px; width:100%; }
+    .auth-submit:disabled { opacity:.55; cursor:default; }
+    .auth-switch-row { margin:20px 0 0; text-align:center; color:var(--muted); font-size:13px; }
+    .auth-switch { border:0; padding:4px 6px; background:transparent; color:var(--green); text-decoration:underline; text-underline-offset:3px; }
+    .auth-dismiss { display:block; margin:14px auto 0; border:0; background:transparent; padding:5px 12px; color:var(--muted); font-size:13px; }
+    @media(max-width:600px) { .topbar { flex-wrap:wrap; padding:16px 0; gap:12px; } .header-actions { flex:1 1 auto; } .account-email { max-width:160px; } .account-button { padding:7px 13px; } .auth-body { padding:22px; } }
     @media(max-width:900px) { .recipes { grid-template-columns:repeat(2,minmax(0,1fr)); } }
     @media(max-width:600px) { .wrap { width:calc(100% - 36px); } .topbar { min-height:78px; } .brand { font-size:19px; gap:8px; } .brand-mark { width:25px; height:25px; font-size:16px; } .month-control { gap:6px; } .month-control label { display:none; } select { min-width:80px; padding:7px 20px 7px 10px; } .hero { padding:40px 0 30px; } .season-stamp { display:none; } h1 { letter-spacing:-1.7px; } .intro { font-size:13px; } .ingredients-section { padding:20px 18px; } .ingredient { padding:8px 16px; font-size:13px; } .section-label { flex-wrap:wrap; } .results-header { margin-top:32px; } h2 { font-size:21px; } .recipes { grid-template-columns:1fr; gap:22px; } .recipe-body { padding:23px; } .steps li { font-size:13px; } footer { flex-direction:column; gap:4px; margin-top:42px; } }
   </style>
@@ -94,7 +120,15 @@
   <header>
     <div class="wrap topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">✳</span>오늘 뭐먹지?</div>
-      <div class="month-control"><label for="month">식탁의 계절</label><select id="month" aria-label="제철 재료를 볼 월 선택"></select></div>
+      <div class="header-actions">
+        <div class="month-control"><label for="month">식탁의 계절</label><select id="month" aria-label="제철 재료를 볼 월 선택"></select></div>
+        <div class="account" aria-label="내 계정">
+          <button type="button" class="account-button" id="login-button" aria-haspopup="dialog">로그인</button>
+          <span class="account-email" id="account-email" hidden></span>
+          <button type="button" class="account-button secondary" id="logout-button" hidden>로그아웃</button>
+        </div>
+        <p class="account-status" id="account-status" role="status" aria-live="polite"></p>
+      </div>
     </div>
   </header>
   <main class="wrap">
@@ -124,7 +158,28 @@
     <div class="dialog-toolbar"><span>레시피 자세히 보기</span><button type="button" class="dialog-x" id="dialog-x" aria-label="레시피 팝업 닫기" autofocus>×</button></div>
     <div id="dialog-content"></div>
   </dialog>
+  <dialog class="recipe-dialog auth-dialog" id="auth-dialog" aria-labelledby="auth-title" aria-describedby="auth-intro">
+    <div class="dialog-toolbar"><span>오늘 뭐먹지? · 내 계정</span><button type="button" class="dialog-x" id="auth-x" aria-label="로그인 팝업 닫기">×</button></div>
+    <div class="auth-body">
+      <h2 id="auth-title">로그인</h2>
+      <p class="auth-intro" id="auth-intro">이메일과 비밀번호로 로그인하세요.</p>
+      <form class="auth-form" id="auth-form">
+        <label for="auth-email">이메일</label>
+        <input id="auth-email" name="email" type="email" autocomplete="email" required autofocus>
+        <label for="auth-password">비밀번호</label>
+        <input id="auth-password" name="password" type="password" autocomplete="current-password" required aria-describedby="auth-password-hint">
+        <p class="auth-hint" id="auth-password-hint"></p>
+        <p class="auth-message" id="auth-message" role="status" aria-live="polite"></p>
+        <button type="submit" class="account-button auth-submit" id="auth-submit" disabled>로그인</button>
+      </form>
+      <p class="auth-switch-row"><span id="auth-switch-prompt">아직 계정이 없으신가요?</span> <button type="button" class="auth-switch" id="auth-switch">회원가입</button></p>
+      <button type="button" class="auth-dismiss" id="auth-close">닫기</button>
+    </div>
+  </dialog>
   <script>
+    function syncModalScroll() {
+      document.body.classList.toggle('modal-open', Boolean(document.querySelector('dialog[open]')));
+    }
     const monthSelect = document.querySelector('#month');
     const ingredients = document.querySelector('#ingredients');
     const recipes = document.querySelector('#recipes');
@@ -220,13 +275,13 @@
       body.append(close);
       dialogContent.replaceChildren(photo, body);
       recipeDialog.showModal();
-      document.body.classList.add('modal-open');
+      syncModalScroll();
       recipeDialog.scrollTop = 0;
     }
 
     document.querySelector('#dialog-x').addEventListener('click', () => recipeDialog.close());
     recipeDialog.addEventListener('close', () => {
-      document.body.classList.remove('modal-open');
+      syncModalScroll();
       if (dialogOpener?.isConnected) dialogOpener.focus({ preventScroll:true });
     });
 
@@ -390,6 +445,192 @@
     monthSelect.addEventListener('change', renderMonth);
     renderMonth();
     loadMenu();
+  </script>
+  <script>
+    (() => {
+      // Browser-safe project settings. Never use a secret or service_role key here.
+      const SUPABASE_URL = 'https://uztvnvkaavbprdieibat.supabase.co';
+      const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_s0MjroDQvd_2vyj7zn5kkA_3qflT098';
+      const dialog = document.querySelector('#auth-dialog');
+      const form = document.querySelector('#auth-form');
+      const email = document.querySelector('#auth-email');
+      const password = document.querySelector('#auth-password');
+      const submit = document.querySelector('#auth-submit');
+      const switchButton = document.querySelector('#auth-switch');
+      const message = document.querySelector('#auth-message');
+      const loginButton = document.querySelector('#login-button');
+      const logoutButton = document.querySelector('#logout-button');
+      const accountEmail = document.querySelector('#account-email');
+      const accountStatus = document.querySelector('#account-status');
+      let client;
+      let signup = false;
+      let busy = false;
+      let revision = 0;
+      let sessionVersion = 0;
+      let connectionMessage = '로그인 서비스를 연결하고 있어요. 잠시만 기다려 주세요.';
+
+      function setMessage(text, success = false) {
+        message.textContent = text;
+        message.classList.toggle('success', success);
+      }
+
+      function updateControls() {
+        submit.disabled = !client || busy;
+        email.disabled = busy;
+        password.disabled = busy;
+        switchButton.disabled = busy;
+        submit.textContent = busy ? '처리 중…' : signup ? '회원가입' : '로그인';
+        form.setAttribute('aria-busy', String(busy));
+      }
+
+      function setMode(isSignup) {
+        signup = isSignup;
+        revision++;
+        password.value = '';
+        document.querySelector('#auth-title').textContent = signup ? '회원가입' : '로그인';
+        document.querySelector('#auth-intro').textContent = signup ? '이메일로 나만의 계정을 만들어 보세요.' : '이메일과 비밀번호로 로그인하세요.';
+        document.querySelector('#auth-switch-prompt').textContent = signup ? '이미 계정이 있으신가요?' : '아직 계정이 없으신가요?';
+        switchButton.textContent = signup ? '로그인' : '회원가입';
+        password.autocomplete = signup ? 'new-password' : 'current-password';
+        if (signup) password.minLength = 6;
+        else password.removeAttribute('minlength');
+        document.querySelector('#auth-password-hint').textContent = signup ? '비밀번호는 6자 이상 입력해 주세요.' : '';
+        setMessage(client ? '' : connectionMessage);
+        updateControls();
+      }
+
+      function updateAccount(session) {
+        const address = session?.user?.email || '';
+        accountEmail.textContent = address;
+        accountEmail.title = address;
+        accountEmail.hidden = !address;
+        logoutButton.hidden = !address;
+        loginButton.hidden = Boolean(address);
+        accountStatus.textContent = '';
+      }
+
+      function errorMessage(error) {
+        const code = error?.code || '';
+        if (code === 'invalid_credentials') return '이메일 또는 비밀번호를 확인해 주세요.';
+        if (code === 'email_not_confirmed') return '이메일의 인증 링크를 확인한 후 로그인해 주세요.';
+        if (['user_already_exists', 'email_exists', 'user_already_registered'].includes(code)) return '이미 등록된 이메일이에요. 로그인해 주세요.';
+        if (code === 'weak_password') return '비밀번호가 보안 기준에 맞지 않아요. 더 길고 다양한 문자로 입력해 주세요.';
+        if (['email_address_invalid', 'validation_failed'].includes(code)) return '이메일 형식과 입력 내용을 확인해 주세요.';
+        if (code === 'signup_disabled') return '현재 회원가입을 받을 수 없어요. 잠시 후 다시 시도해 주세요.';
+        if (error?.status === 429 || code.includes('rate_limit') || code === 'over_email_send_rate_limit') return '요청이 많아요. 잠시 기다린 후 다시 시도해 주세요.';
+        if (error?.name === 'AuthRetryableFetchError' || error instanceof TypeError) return '연결이 원활하지 않아요. 인터넷 연결을 확인하고 다시 시도해 주세요.';
+        return '요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.';
+      }
+
+      loginButton.addEventListener('click', () => {
+        setMode(false);
+        dialog.showModal();
+        syncModalScroll();
+      });
+      switchButton.addEventListener('click', () => setMode(!signup));
+      document.querySelector('#auth-x').addEventListener('click', () => dialog.close());
+      document.querySelector('#auth-close').addEventListener('click', () => dialog.close());
+      dialog.addEventListener('close', () => {
+        revision++;
+        password.value = '';
+        setMessage('');
+        syncModalScroll();
+        if (!loginButton.hidden) loginButton.focus({ preventScroll:true });
+        else logoutButton.focus({ preventScroll:true });
+      });
+
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (!client || busy || !form.reportValidity()) return;
+        busy = true;
+        const requestRevision = revision;
+        const isSignup = signup;
+        const credentials = { email:email.value.trim(), password:password.value };
+        setMessage('');
+        updateControls();
+        try {
+          const result = isSignup
+            ? await client.auth.signUp({ ...credentials, options:{ emailRedirectTo:window.location.origin + window.location.pathname } })
+            : await client.auth.signInWithPassword(credentials);
+          if (result.error) throw result.error;
+          if (result.data.session) updateAccount(result.data.session);
+          if (requestRevision !== revision || !dialog.open) return;
+          password.value = '';
+          if (result.data.session) dialog.close();
+          else if (isSignup) setMessage('이메일 인증이 필요해요. 받은 편지함의 인증 링크를 확인한 후 로그인해 주세요.', true);
+          else setMessage('로그인을 완료하지 못했어요. 다시 시도해 주세요.');
+        } catch (error) {
+          if (requestRevision === revision && dialog.open) setMessage(errorMessage(error));
+        } finally {
+          credentials.password = '';
+          busy = false;
+          updateControls();
+        }
+      });
+
+      logoutButton.addEventListener('click', async () => {
+        if (!client || logoutButton.disabled) return;
+        logoutButton.disabled = true;
+        accountStatus.textContent = '';
+        try {
+          const { error } = await client.auth.signOut({ scope:'local' });
+          if (error) throw error;
+          updateAccount(null);
+          loginButton.focus({ preventScroll:true });
+        } catch (error) {
+          accountStatus.textContent = '로그아웃하지 못했어요. ' + errorMessage(error);
+        } finally {
+          logoutButton.disabled = false;
+        }
+      });
+
+      function publicConfigurationValid() {
+        try {
+          if (new URL(SUPABASE_URL).protocol !== 'https:') return false;
+          if (SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_')) return true;
+          const payload = SUPABASE_PUBLISHABLE_KEY.split('.')[1];
+          return Boolean(payload) && JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))).role === 'anon';
+        } catch { return false; }
+      }
+
+      async function initializeAuth() {
+        try {
+          if (!window.supabase?.createClient) throw new Error('SDK unavailable');
+          client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+          client.auth.onAuthStateChange((_event, session) => {
+            sessionVersion++;
+            updateAccount(session);
+          });
+          const version = sessionVersion;
+          const { data, error } = await client.auth.getSession();
+          if (error) throw error;
+          if (version === sessionVersion) updateAccount(data.session);
+          connectionMessage = '';
+          if (dialog.open) setMessage('');
+          updateControls();
+        } catch {
+          client = null;
+          connectionMessage = '로그인 서비스에 연결하지 못했어요. 페이지를 새로고침해 주세요.';
+          if (dialog.open) setMessage(connectionMessage);
+          updateControls();
+        }
+      }
+
+      if (publicConfigurationValid()) {
+        const sdk = document.createElement('script');
+        sdk.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+        sdk.async = true;
+        sdk.addEventListener('load', initializeAuth, { once:true });
+        sdk.addEventListener('error', () => {
+          connectionMessage = '로그인 서비스에 연결하지 못했어요. 페이지를 새로고침해 주세요.';
+          if (dialog.open) setMessage(connectionMessage);
+          updateControls();
+        }, { once:true });
+        document.head.append(sdk);
+      } else {
+        connectionMessage = '로그인 연결을 준비하고 있어요. 잠시 후 다시 시도해 주세요.';
+      }
+    })();
   </script>
 </body>
 </html>
