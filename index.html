@@ -44,6 +44,8 @@
     .recipes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:25px; align-items:start; }
     .recipe { border:1px solid var(--line); border-radius:13px; overflow:hidden; background:white; }
     .recipe { cursor:pointer; }
+    .random-section { margin-top:44px; padding-top:4px; border-top:1px solid var(--line); }
+    .recipe-meta .random-label { background:#f4eadb; color:#8a623d; }
     .recipe:hover { border-color:#a9b79a; }
     .recipe:focus-visible { outline:3px solid #ba763d; outline-offset:4px; }
     body.modal-open { overflow:hidden; }
@@ -112,6 +114,10 @@
       <div class="results-header"><div><h2 id="results-title">제철 레시피</h2><p id="results-description">재료와 레시피를 불러오고 있어요.</p></div><span class="count" id="count"></span></div>
       <div class="recipes" id="recipes" aria-live="polite"><div class="empty"><strong>제철 식탁을 준비하고 있어요</strong><p>잠시만 기다려 주세요.</p></div></div>
     </section>
+    <section class="random-section" id="random-section" aria-labelledby="random-title" hidden>
+      <div class="results-header"><div><h2 id="random-title">함께 만나는 랜덤 메뉴</h2><p id="random-description"></p></div><span class="count" id="random-count"></span></div>
+      <div class="recipes" id="random-recipes"></div>
+    </section>
   </main>
   <footer class="wrap"><span>오늘 뭐먹지? · 계절을 담은 한 끼</span><span>사진 · 레시피 출처: 식품안전나라</span></footer>
   <dialog class="recipe-dialog" id="recipe-dialog" aria-labelledby="dialog-title">
@@ -126,6 +132,11 @@
     const resultsTitle = document.querySelector('#results-title');
     const resultsDescription = document.querySelector('#results-description');
     const count = document.querySelector('#count');
+    const randomSection = document.querySelector('#random-section');
+    const randomRecipes = document.querySelector('#random-recipes');
+    const randomDescription = document.querySelector('#random-description');
+    const randomCount = document.querySelector('#random-count');
+    const randomByMonth = new Map();
     const recipeDialog = document.querySelector('#recipe-dialog');
     const dialogContent = document.querySelector('#dialog-content');
     let dialogOpener;
@@ -235,55 +246,91 @@
         showMessage('아직 준비된 레시피가 없어요', '다른 제철 재료나 월을 선택해 보세요.');
         return;
       }
-      for (const recipe of matches) {
-        const card = element('article', 'recipe');
-        card.tabIndex = 0;
-        card.setAttribute('role', 'button');
-        card.setAttribute('aria-haspopup', 'dialog');
-        card.setAttribute('aria-label', `${recipe.name} 레시피 자세히 보기`);
-        card.addEventListener('click', () => openRecipe(recipe, card));
-        card.addEventListener('keydown', event => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            openRecipe(recipe, card);
+      for (const recipe of matches) recipes.append(createRecipeCard(recipe, month));
+    }
+
+    function createRecipeCard(recipe, month, isRandom = false) {
+      const card = element('article', 'recipe');
+      card.tabIndex = 0;
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-haspopup', 'dialog');
+      card.setAttribute('aria-label', `${recipe.name} 레시피 자세히 보기`);
+      card.addEventListener('click', () => openRecipe(recipe, card));
+      card.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openRecipe(recipe, card);
+        }
+      });
+      const photo = element('div', 'photo');
+      const fallback = element('div', 'photo-fallback');
+      const symbol = element('span', '', '♧');
+      symbol.setAttribute('aria-hidden', 'true');
+      fallback.append(symbol, document.createTextNode('사진을 준비하고 있어요'));
+      photo.append(fallback);
+      if (recipe.image) {
+        const image = document.createElement('img');
+        image.alt = recipe.name;
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        image.addEventListener('error', () => image.remove(), { once: true });
+        image.addEventListener('load', () => fallback.remove(), { once: true });
+        try {
+          const imageUrl = new URL(recipe.image, window.location.href);
+          if (['http:', 'https:'].includes(imageUrl.protocol)) {
+            image.src = imageUrl.href;
+            photo.append(image);
           }
-        });
-        const photo = element('div', 'photo');
-        const fallback = element('div', 'photo-fallback');
-        const symbol = element('span', '', '♧');
-        symbol.setAttribute('aria-hidden', 'true');
-        fallback.append(symbol, document.createTextNode('사진을 준비하고 있어요'));
-        photo.append(fallback);
-        if (recipe.image) {
-          const image = document.createElement('img');
-          image.alt = recipe.name;
-          image.loading = 'lazy';
-          image.decoding = 'async';
-          image.addEventListener('error', () => image.remove(), { once: true });
-          image.addEventListener('load', () => fallback.remove(), { once: true });
-          try {
-            const imageUrl = new URL(recipe.image, window.location.href);
-            if (['http:', 'https:'].includes(imageUrl.protocol)) {
-              image.src = imageUrl.href;
-              photo.append(image);
-            }
-          } catch { /* Invalid image URLs retain the visible fallback. */ }
-        }
-        const body = element('div', 'recipe-body');
-        const meta = element('div', 'recipe-meta');
-        meta.append(element('span', '', `${month}월 제철`));
-        if (recipe.category) meta.append(element('span', '', recipe.category));
-        body.append(meta, element('h3', '', recipe.name), element('p', 'steps-heading', '만드는 법'));
-        if (recipe.steps.length) {
-          const steps = element('ol', 'steps');
-          for (const step of recipe.steps) steps.append(element('li', '', step));
-          body.append(steps);
-        } else {
-          body.append(element('p', '', '등록된 조리 순서가 없어요.'));
-        }
-        card.append(photo, body);
-        recipes.append(card);
+        } catch { /* Invalid image URLs retain the visible fallback. */ }
       }
+      const body = element('div', 'recipe-body');
+      const meta = element('div', 'recipe-meta');
+      meta.append(element('span', isRandom ? 'random-label' : '', isRandom ? '랜덤 추천' : `${month}월 제철`));
+      if (recipe.category) meta.append(element('span', '', recipe.category));
+      body.append(meta, element('h3', '', recipe.name), element('p', 'steps-heading', '만드는 법'));
+      if (recipe.steps.length) {
+        const steps = element('ol', 'steps');
+        for (const step of recipe.steps) steps.append(element('li', '', step));
+        body.append(steps);
+      } else {
+        body.append(element('p', '', '등록된 조리 순서가 없어요.'));
+      }
+      card.append(photo, body);
+      return card;
+    }
+
+    function renderRandomRecipes(month, names) {
+      const monthly = menu.recipes.filter(recipe =>
+        recipe.months.includes(month) && recipe.seasonal.some(name => names.includes(name))
+      );
+      randomSection.hidden = monthly.length > 15;
+      randomRecipes.replaceChildren();
+      if (randomSection.hidden) return;
+      if (!randomByMonth.has(month)) {
+        const excludedNames = new Set(monthly.map(recipe => recipe.name));
+        const candidates = [];
+        for (const recipe of menu.recipes) {
+          if (!excludedNames.has(recipe.name)) {
+            candidates.push(recipe);
+            excludedNames.add(recipe.name);
+          }
+        }
+        for (let index = candidates.length - 1; index > 0; index--) {
+          const other = Math.floor(Math.random() * (index + 1));
+          [candidates[index], candidates[other]] = [candidates[other], candidates[index]];
+        }
+        randomByMonth.set(month, candidates.slice(0, 5));
+      }
+      const extra = randomByMonth.get(month);
+      randomDescription.textContent = `${month}월 전체 제철 메뉴가 ${monthly.length}개여서, 다른 메뉴 ${extra.length}개를 무작위로 골랐어요. 선택한 재료와 관계없는 추가 추천이에요.`;
+      randomCount.replaceChildren(element('strong', '', extra.length), document.createTextNode('개의 추가 추천'));
+      if (!extra.length) {
+        const message = element('div', 'empty');
+        message.append(element('strong', '', '추가로 추천할 메뉴가 없어요'), element('p', '', '다른 월의 제철 메뉴도 살펴보세요.'));
+        randomRecipes.append(message);
+        return;
+      }
+      for (const recipe of extra) randomRecipes.append(createRecipeCard(recipe, month, true));
     }
 
     function renderMonth() {
@@ -304,10 +351,13 @@
       }
       if (!names.length) ingredients.append(element('p', 'intro', '등록된 제철 재료가 없어요. 다른 월을 선택해 주세요.'));
       renderRecipes();
+      renderRandomRecipes(month, names);
     }
 
     async function loadMenu() {
       resultsSection.setAttribute('aria-busy', 'true');
+      randomSection.hidden = true;
+      randomRecipes.replaceChildren();
       monthSelect.disabled = true;
       showMessage('제철 식탁을 준비하고 있어요', '잠시만 기다려 주세요.');
       try {
@@ -320,6 +370,7 @@
           throw new Error('Invalid menu structure');
         }
         menu = data;
+        randomByMonth.clear();
         renderMonth();
       } catch {
         resultsTitle.textContent = '데이터를 불러오지 못했어요';
