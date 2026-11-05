@@ -43,6 +43,30 @@
     .count strong { color:var(--green); font-size:16px; }
     .recipes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:25px; align-items:start; }
     .recipe { border:1px solid var(--line); border-radius:13px; overflow:hidden; background:white; }
+    .recipe { cursor:pointer; }
+    .recipe:hover { border-color:#a9b79a; }
+    .recipe:focus-visible { outline:3px solid #ba763d; outline-offset:4px; }
+    body.modal-open { overflow:hidden; }
+    .recipe-dialog { width:min(820px,calc(100% - 32px)); max-height:90vh; max-height:90dvh; padding:0; border:1px solid var(--line); border-radius:18px; background:var(--paper); color:var(--ink); overflow:auto; overscroll-behavior:contain; }
+    .recipe-dialog::backdrop { background:rgb(18 36 27 / .65); }
+    .dialog-toolbar { position:sticky; top:0; z-index:1; display:flex; justify-content:space-between; align-items:center; padding:12px 20px; background:var(--paper); border-bottom:1px solid var(--line); font-size:13px; }
+    .dialog-x { width:40px; height:40px; border:1px solid var(--line); border-radius:50%; background:white; color:var(--ink); font-size:27px; line-height:1; }
+    .dialog-photo { aspect-ratio:1.65; }
+    .dialog-photo img { object-fit:contain; }
+    .dialog-body { padding:clamp(20px,5vw,38px); overflow-wrap:anywhere; }
+    .dialog-body h2 { font-size:clamp(24px,4vw,32px); margin-bottom:18px; }
+    .dialog-meta { display:flex; flex-wrap:wrap; gap:10px 24px; margin:0 0 28px; font-size:14px; }
+    .dialog-meta div { display:flex; gap:9px; }
+    .dialog-meta dt { color:var(--muted); }
+    .dialog-meta dd { margin:0; font-weight:700; }
+    .dialog-section { border-top:1px solid var(--line); padding-top:22px; margin-top:24px; }
+    .dialog-section h3 { font-size:17px; margin-bottom:12px; }
+    .dialog-ingredients,.dialog-tip p { white-space:pre-line; font-size:14px; margin:0; }
+    .dialog-steps { padding-left:24px; margin:0; font-size:14px; }
+    .dialog-steps li { padding-left:5px; margin-top:12px; white-space:pre-line; }
+    .dialog-tip { padding:18px 20px; border-radius:10px; background:var(--tint); margin-top:26px; }
+    .dialog-tip h3 { font-size:16px; margin:0 0 8px; }
+    .dialog-close { display:block; margin:28px 0 0 auto; min-width:110px; border:0; border-radius:24px; padding:10px 25px; background:var(--green); color:white; }
     .photo { position:relative; aspect-ratio:1.5; background:#e9eddf; overflow:hidden; display:grid; place-items:center; }
     .photo img { width:100%; height:100%; object-fit:cover; display:block; position:absolute; inset:0; }
     .photo-fallback { color:#71845e; text-align:center; font-size:13px; }
@@ -90,6 +114,10 @@
     </section>
   </main>
   <footer class="wrap"><span>오늘 뭐먹지? · 계절을 담은 한 끼</span><span>사진 · 레시피 출처: 식품안전나라</span></footer>
+  <dialog class="recipe-dialog" id="recipe-dialog" aria-labelledby="dialog-title">
+    <div class="dialog-toolbar"><span>레시피 자세히 보기</span><button type="button" class="dialog-x" id="dialog-x" aria-label="레시피 팝업 닫기" autofocus>×</button></div>
+    <div id="dialog-content"></div>
+  </dialog>
   <script>
     const monthSelect = document.querySelector('#month');
     const ingredients = document.querySelector('#ingredients');
@@ -98,6 +126,9 @@
     const resultsTitle = document.querySelector('#results-title');
     const resultsDescription = document.querySelector('#results-description');
     const count = document.querySelector('#count');
+    const recipeDialog = document.querySelector('#recipe-dialog');
+    const dialogContent = document.querySelector('#dialog-content');
+    let dialogOpener;
     let menu;
     let selectedIngredient = '';
 
@@ -123,6 +154,71 @@
       return message;
     }
 
+    function recipeText(value) {
+      return String(value ?? '').replace(/<br\s*\/?\s*>/gi, '\n').trim();
+    }
+
+    function openRecipe(recipe, opener) {
+      dialogOpener = opener;
+      const photo = element('div', 'photo dialog-photo');
+      const fallback = element('div', 'photo-fallback', '사진을 준비하고 있어요');
+      photo.append(fallback);
+      if (recipe.image) {
+        try {
+          const imageUrl = new URL(recipe.image, window.location.href);
+          if (['http:', 'https:'].includes(imageUrl.protocol)) {
+            const image = document.createElement('img');
+            image.alt = recipe.name;
+            image.addEventListener('error', () => image.remove(), { once:true });
+            image.addEventListener('load', () => fallback.remove(), { once:true });
+            image.src = imageUrl.href;
+            photo.append(image);
+          }
+        } catch { /* Keep the fallback when an image URL is invalid. */ }
+      }
+      const body = element('div', 'dialog-body');
+      const title = element('h2', '', recipeText(recipe.name));
+      title.id = 'dialog-title';
+      const meta = element('dl', 'dialog-meta');
+      for (const [label, value] of [['요리종류', recipe.category], ['조리방법', recipe.method]]) {
+        const item = element('div');
+        item.append(element('dt', '', label), element('dd', '', recipeText(value) || '정보 없음'));
+        meta.append(item);
+      }
+      const ingredientsSection = element('section', 'dialog-section');
+      ingredientsSection.append(element('h3', '', '재료'), element('p', 'dialog-ingredients', recipeText(recipe.ingredients_text) || '등록된 재료 정보가 없어요.'));
+      const stepsSection = element('section', 'dialog-section');
+      stepsSection.append(element('h3', '', '조리순서'));
+      if (recipe.steps.length) {
+        const steps = element('ol', 'dialog-steps');
+        for (const step of recipe.steps) steps.append(element('li', '', recipeText(step)));
+        stepsSection.append(steps);
+      } else {
+        stepsSection.append(element('p', '', '등록된 조리 순서가 없어요.'));
+      }
+      body.append(title, meta, ingredientsSection, stepsSection);
+      const tipText = recipeText(recipe.tip);
+      if (tipText) {
+        const tip = element('aside', 'dialog-tip');
+        tip.append(element('h3', '', '💡 요리 팁'), element('p', '', tipText));
+        body.append(tip);
+      }
+      const close = element('button', 'dialog-close', '닫기');
+      close.type = 'button';
+      close.addEventListener('click', () => recipeDialog.close());
+      body.append(close);
+      dialogContent.replaceChildren(photo, body);
+      recipeDialog.showModal();
+      document.body.classList.add('modal-open');
+      recipeDialog.scrollTop = 0;
+    }
+
+    document.querySelector('#dialog-x').addEventListener('click', () => recipeDialog.close());
+    recipeDialog.addEventListener('close', () => {
+      document.body.classList.remove('modal-open');
+      if (dialogOpener?.isConnected) dialogOpener.focus({ preventScroll:true });
+    });
+
     function renderRecipes() {
       const month = Number(monthSelect.value);
       const matches = menu.recipes.filter(recipe =>
@@ -141,6 +237,17 @@
       }
       for (const recipe of matches) {
         const card = element('article', 'recipe');
+        card.tabIndex = 0;
+        card.setAttribute('role', 'button');
+        card.setAttribute('aria-haspopup', 'dialog');
+        card.setAttribute('aria-label', `${recipe.name} 레시피 자세히 보기`);
+        card.addEventListener('click', () => openRecipe(recipe, card));
+        card.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openRecipe(recipe, card);
+          }
+        });
         const photo = element('div', 'photo');
         const fallback = element('div', 'photo-fallback');
         const symbol = element('span', '', '♧');
