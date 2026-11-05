@@ -9,6 +9,7 @@
   <style>
     :root { color-scheme: light; --paper:#faf9f4; --ink:#203c30; --muted:#72786c; --line:#e1e5d9; --green:#29543e; --tint:#ecf0e4; }
     * { box-sizing:border-box; }
+    [hidden] { display:none !important; }
     body { margin:0; background:var(--paper); color:var(--ink); font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif; line-height:1.65; }
     button,select,input { font:inherit; }
     button,select { cursor:pointer; }
@@ -93,6 +94,12 @@
     .account-button.secondary { background:transparent; color:var(--green); }
     .account-status { margin:0; text-align:right; font-size:12px; color:#a23e32; }
     .account-status:empty { display:none; }
+    .favorite-button { border:1px solid #b5c2a8; border-radius:24px; background:white; color:var(--green); padding:9px 17px; font-size:14px; }
+    .favorite-button[aria-pressed="true"] { background:var(--tint); border-color:var(--green); }
+    .favorite-button:disabled { opacity:.55; cursor:wait; }
+    .favorite-message { margin:9px 0 20px; font-size:13px; color:var(--muted); }
+    .favorite-message:empty { display:none; }
+    .saved-back { margin-bottom:18px; }
     .auth-dialog { width:min(440px,calc(100% - 32px)); }
     .auth-body { padding:24px 28px 28px; }
     .auth-body h2 { margin-bottom:6px; }
@@ -122,6 +129,7 @@
       <div class="brand"><span class="brand-mark" aria-hidden="true">✳</span>오늘 뭐먹지?</div>
       <div class="header-actions">
         <div class="month-control"><label for="month">식탁의 계절</label><select id="month" aria-label="제철 재료를 볼 월 선택"></select></div>
+        <button type="button" class="account-button secondary" id="favorites-button" aria-pressed="false">내 즐겨찾기</button>
         <div class="account" aria-label="내 계정">
           <button type="button" class="account-button" id="login-button" aria-haspopup="dialog">로그인</button>
           <span class="account-email" id="account-email" hidden></span>
@@ -145,6 +153,7 @@
       <div class="ingredients" id="ingredients" role="group" aria-label="제철 재료 선택"></div>
     </section>
     <section aria-labelledby="results-title" aria-busy="true" id="results-section">
+      <button type="button" class="account-button secondary saved-back" id="favorites-back" hidden>← 제철 추천으로 돌아가기</button>
       <div class="results-header"><div><h2 id="results-title">제철 레시피</h2><p id="results-description">재료와 레시피를 불러오고 있어요.</p></div><span class="count" id="count"></span></div>
       <div class="recipes" id="recipes" aria-live="polite"><div class="empty"><strong>제철 식탁을 준비하고 있어요</strong><p>잠시만 기다려 주세요.</p></div></div>
     </section>
@@ -197,6 +206,161 @@
     let dialogOpener;
     let menu;
     let selectedIngredient = '';
+    let favoritesView = false;
+    let activeRecipe;
+    let favoriteButton;
+    let favoriteMessage;
+    let favoriteFeedback = '';
+    const favoritesButton = document.querySelector('#favorites-button');
+    const favoritesBack = document.querySelector('#favorites-back');
+    const favoritesState = { client:null, userId:null, ids:new Set(), loaded:false, loading:false, error:'', generation:0, request:0, pending:new Set() };
+
+    function favoriteError(error) {
+      if (['PGRST205', '42P01'].includes(error?.code)) return '즐겨찾기 저장소를 준비 중이에요. 잠시 후 다시 시도해 주세요.';
+      return '즐겨찾기를 처리하지 못했어요. 연결을 확인한 후 다시 시도해 주세요.';
+    }
+
+    function refreshFavoriteButton() {
+      if (!favoriteButton || !activeRecipe) return;
+      const saved = favoritesState.ids.has(activeRecipe.id);
+      favoriteButton.textContent = saved ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기 저장';
+      favoriteButton.setAttribute('aria-pressed', String(saved));
+      favoriteButton.disabled = Boolean(favoritesState.userId && (!favoritesState.loaded || favoritesState.loading || favoritesState.pending.size));
+      favoriteMessage.textContent = !favoritesState.userId ? '로그인하면 즐겨찾기를 저장할 수 있어요'
+        : favoritesState.loading ? '즐겨찾기를 확인하고 있어요.' : favoritesState.error || favoriteFeedback;
+    }
+
+    function renderSavedRecipes() {
+      resultsTitle.textContent = '내 즐겨찾기';
+      resultsDescription.textContent = '월과 재료에 관계없이 내가 저장한 레시피를 모았어요.';
+      count.replaceChildren();
+      recipes.replaceChildren();
+      resultsSection.setAttribute('aria-busy', String(favoritesState.loading));
+      if (!favoritesState.userId) {
+        showMessage('로그인하면 즐겨찾기를 저장할 수 있어요', '상단 로그인 버튼으로 로그인해 주세요.');
+      } else if (!menu) {
+        showMessage('레시피를 불러오고 있어요', '잠시만 기다려 주세요.');
+      } else if (favoritesState.loading) {
+        showMessage('즐겨찾기를 불러오고 있어요', '잠시만 기다려 주세요.');
+      } else if (favoritesState.error) {
+        const message = showMessage('즐겨찾기를 불러오지 못했어요', favoritesState.error);
+        const retry = element('button', 'retry', '다시 불러오기');
+        retry.type = 'button';
+        retry.addEventListener('click', loadFavorites);
+        message.append(retry);
+      } else {
+        const saved = menu.recipes.filter(recipe => favoritesState.ids.has(recipe.id));
+        count.replaceChildren(element('strong', '', saved.length), document.createTextNode('개의 레시피'));
+        if (!saved.length) showMessage('아직 저장한 레시피가 없어요', '레시피 상세 팝업에서 ☆ 버튼을 눌러 저장해 보세요.');
+        for (const recipe of saved) recipes.append(createRecipeCard(recipe, Number(monthSelect.value), false, true));
+      }
+    }
+
+    function setFavoritesView(enabled) {
+      favoritesView = enabled;
+      favoritesButton.setAttribute('aria-pressed', String(enabled));
+      favoritesBack.hidden = !enabled;
+      document.querySelector('.ingredients-section').hidden = enabled;
+      document.querySelector('.month-control').hidden = enabled;
+      if (enabled) {
+        randomSection.hidden = true;
+        renderSavedRecipes();
+      } else if (menu) {
+        resultsSection.setAttribute('aria-busy', 'false');
+        renderRecipes();
+        const month = Number(monthSelect.value);
+        renderRandomRecipes(month, menu.seasonal.filter(item => item.month === month).map(item => item.name));
+      }
+    }
+
+    favoritesButton.addEventListener('click', () => setFavoritesView(true));
+    favoritesBack.addEventListener('click', () => setFavoritesView(false));
+
+    function setFavoriteSession(client, session) {
+      favoritesState.client = client;
+      const userId = session?.user?.id || null;
+      if (userId === favoritesState.userId) return;
+      favoritesState.userId = userId;
+      favoritesState.generation++;
+      favoritesState.ids.clear();
+      favoritesState.pending.clear();
+      favoritesState.loaded = false;
+      favoritesState.loading = Boolean(userId);
+      favoritesState.error = '';
+      favoriteFeedback = '';
+      refreshFavoriteButton();
+      if (favoritesView) renderSavedRecipes();
+      // Supabase auth callbacks must return before another SDK call starts.
+      const generation = favoritesState.generation;
+      if (userId) setTimeout(() => {
+        if (generation === favoritesState.generation) loadFavorites();
+      }, 0);
+    }
+
+    async function loadFavorites() {
+      const { client, userId, generation } = favoritesState;
+      if (!client || !userId) return;
+      const request = ++favoritesState.request;
+      favoritesState.loading = true;
+      favoritesState.error = '';
+      refreshFavoriteButton();
+      if (favoritesView) renderSavedRecipes();
+      try {
+        const { data, error } = await client.from('favorites').select('recipe_id').eq('user_id', userId);
+        if (error) throw error;
+        if (generation !== favoritesState.generation || request !== favoritesState.request) return;
+        favoritesState.ids = new Set(data.map(row => Number(row.recipe_id)));
+        favoritesState.loaded = true;
+      } catch (error) {
+        if (generation !== favoritesState.generation || request !== favoritesState.request) return;
+        favoritesState.loaded = false;
+        favoritesState.ids.clear();
+        favoritesState.error = favoriteError(error);
+      } finally {
+        if (generation === favoritesState.generation && request === favoritesState.request) {
+          favoritesState.loading = false;
+          refreshFavoriteButton();
+          if (favoritesView) renderSavedRecipes();
+        }
+      }
+    }
+
+    async function toggleFavorite(recipe) {
+      const { client, userId, generation } = favoritesState;
+      if (!userId) {
+        favoriteFeedback = '로그인하면 즐겨찾기를 저장할 수 있어요';
+        refreshFavoriteButton();
+        return;
+      }
+      if (!client || !favoritesState.loaded || favoritesState.loading || favoritesState.pending.size) return;
+      const removing = favoritesState.ids.has(recipe.id);
+      favoritesState.pending.add(recipe.id);
+      favoriteFeedback = '';
+      refreshFavoriteButton();
+      try {
+        const query = client.from('favorites');
+        const { data, error } = removing
+          ? await query.delete().eq('user_id', userId).eq('recipe_id', recipe.id).select('recipe_id')
+          : await query.insert({ user_id:userId, recipe_id:recipe.id }).select('recipe_id');
+        if (generation !== favoritesState.generation) return;
+        if (error) {
+          if (error.code === '23505') { await loadFavorites(); return; }
+          throw error;
+        }
+        if (!removing && !data?.some(row => Number(row.recipe_id) === recipe.id)) throw new Error('Favorite not saved');
+        if (removing) favoritesState.ids.delete(recipe.id);
+        else favoritesState.ids.add(recipe.id);
+        if (activeRecipe?.id === recipe.id) favoriteFeedback = removing ? '즐겨찾기에서 삭제했어요.' : '즐겨찾기에 저장했어요.';
+        if (favoritesView) renderSavedRecipes();
+      } catch (error) {
+        if (generation === favoritesState.generation && activeRecipe?.id === recipe.id) favoriteFeedback = favoriteError(error);
+      } finally {
+        if (generation === favoritesState.generation) {
+          favoritesState.pending.delete(recipe.id);
+          refreshFavoriteButton();
+        }
+      }
+    }
 
     for (let month = 1; month <= 12; month++) {
       const option = document.createElement('option');
@@ -226,6 +390,8 @@
 
     function openRecipe(recipe, opener) {
       dialogOpener = opener;
+      activeRecipe = recipe;
+      favoriteFeedback = '';
       const photo = element('div', 'photo dialog-photo');
       const fallback = element('div', 'photo-fallback', '사진을 준비하고 있어요');
       photo.append(fallback);
@@ -262,7 +428,14 @@
       } else {
         stepsSection.append(element('p', '', '등록된 조리 순서가 없어요.'));
       }
-      body.append(title, meta, ingredientsSection, stepsSection);
+      favoriteButton = element('button', 'favorite-button');
+      favoriteButton.type = 'button';
+      favoriteButton.addEventListener('click', () => toggleFavorite(recipe));
+      favoriteMessage = element('p', 'favorite-message');
+      favoriteMessage.setAttribute('role', 'status');
+      favoriteMessage.setAttribute('aria-live', 'polite');
+      body.append(title, favoriteButton, favoriteMessage, meta, ingredientsSection, stepsSection);
+      refreshFavoriteButton();
       const tipText = recipeText(recipe.tip);
       if (tipText) {
         const tip = element('aside', 'dialog-tip');
@@ -283,9 +456,11 @@
     recipeDialog.addEventListener('close', () => {
       syncModalScroll();
       if (dialogOpener?.isConnected) dialogOpener.focus({ preventScroll:true });
+      else if (favoritesView) favoritesButton.focus({ preventScroll:true });
     });
 
     function renderRecipes() {
+      if (favoritesView) { renderSavedRecipes(); return; }
       const month = Number(monthSelect.value);
       const matches = menu.recipes.filter(recipe =>
         recipe.seasonal.includes(selectedIngredient) && recipe.months.includes(month)
@@ -304,7 +479,7 @@
       for (const recipe of matches) recipes.append(createRecipeCard(recipe, month));
     }
 
-    function createRecipeCard(recipe, month, isRandom = false) {
+    function createRecipeCard(recipe, month, isRandom = false, isFavorite = false) {
       const card = element('article', 'recipe');
       card.tabIndex = 0;
       card.setAttribute('role', 'button');
@@ -340,7 +515,7 @@
       }
       const body = element('div', 'recipe-body');
       const meta = element('div', 'recipe-meta');
-      meta.append(element('span', isRandom ? 'random-label' : '', isRandom ? '랜덤 추천' : `${month}월 제철`));
+      meta.append(element('span', isRandom ? 'random-label' : '', isFavorite ? '★ 내 즐겨찾기' : isRandom ? '랜덤 추천' : `${month}월 제철`));
       if (recipe.category) meta.append(element('span', '', recipe.category));
       body.append(meta, element('h3', '', recipe.name), element('p', 'steps-heading', '만드는 법'));
       if (recipe.steps.length) {
@@ -358,7 +533,7 @@
       const monthly = menu.recipes.filter(recipe =>
         recipe.months.includes(month) && recipe.seasonal.some(name => names.includes(name))
       );
-      randomSection.hidden = monthly.length > 15;
+      randomSection.hidden = favoritesView || monthly.length > 15;
       randomRecipes.replaceChildren();
       if (randomSection.hidden) return;
       if (!randomByMonth.has(month)) {
@@ -507,6 +682,7 @@
         logoutButton.hidden = !address;
         loginButton.hidden = Boolean(address);
         accountStatus.textContent = '';
+        setFavoriteSession(client, session);
       }
 
       function errorMessage(error) {
@@ -610,6 +786,7 @@
           updateControls();
         } catch {
           client = null;
+          setFavoriteSession(null, null);
           connectionMessage = '로그인 서비스에 연결하지 못했어요. 페이지를 새로고침해 주세요.';
           if (dialog.open) setMessage(connectionMessage);
           updateControls();
